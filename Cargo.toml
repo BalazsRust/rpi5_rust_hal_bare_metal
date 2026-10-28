@@ -1,0 +1,124 @@
+# Workspace root AND the `pi5-hal` package (Layer 1).
+#
+# Layers, top to bottom (each one only talks to the one below it):
+#
+#   examples/            your program: #[pi5_executor::main], Timer::after(..).await, led.toggle()
+#   crates/pi5-executor  Layer 2: embassy-shaped async runtime (Spawner, #[task], per-core executors)
+#   crates/pi5-time      Layer 2: Duration / Instant / Timer / Ticker
+#   crates/pi5-futures   Layer 2: select / join / yield_now
+#   crates/pi5-sync      Layer 2: Channel / Signal / Mutex for talking between tasks and cores
+#   src/   (pi5-hal)     Layer 1: drivers (gpio, uart, i2c, spi, pwm), runtime, MMU, multicore
+#   crates/pi5-pac       Layer 0: register addresses and bit definitions, nothing else
+#
+# `cargo build --release --example blink` from this directory builds an example
+# against all of them.
+
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package]
+name = "pi5-hal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Layer 1: bare-metal drivers and runtime for the Raspberry Pi 5 (BCM2712 + RP1), esp-hal style"
+build = "build.rs"
+
+[lib]
+name = "pi5_hal"
+
+[dependencies]
+# Layer 0: the register map.
+pi5-pac = { path = "crates/pi5-pac" }
+# The standard embedded traits (OutputPin, I2c, SpiBus, DelayNs, SetDutyCycle...).
+# No dependencies of its own.
+embedded-hal = "1.0"
+
+[dev-dependencies]
+# Only the examples use the async layer; the HAL itself does not depend on it
+# (exactly like esp-hal does not depend on embassy-executor).
+pi5-executor = { path = "crates/pi5-executor" }
+pi5-time = { path = "crates/pi5-time" }
+pi5-futures = { path = "crates/pi5-futures" }
+pi5-sync = { path = "crates/pi5-sync" }
+
+[features]
+default = ["rt", "panic-handler"]
+# Startup code: `_start`, MMU, stack, .bss, exception vectors, `entry!`,
+# secondary-core entry. Disable only if you bring your own runtime.
+rt = []
+# `#[panic_handler]` printing to the debug UART.
+panic-handler = []
+
+[[example]]
+name = "blink"
+required-features = ["rt", "panic-handler"]
+[[example]]
+name = "button"
+required-features = ["rt", "panic-handler"]
+[[example]]
+name = "uart_hello"
+required-features = ["rt", "panic-handler"]
+[[example]]
+name = "async_blink"
+required-features = ["rt", "panic-handler"]
+[[example]]
+name = "uart_sender"
+required-features = ["rt", "panic-handler"]
+[[example]]
+name = "async_tasks"
+required-features = ["rt", "panic-handler"]
+[[example]]
+name = "multicore"
+required-features = ["rt", "panic-handler"]
+[[example]]
+name = "i2c_scan"
+required-features = ["rt", "panic-handler"]
+[[example]]
+name = "spi_loopback"
+required-features = ["rt", "panic-handler"]
+[[example]]
+name = "pwm_fade"
+required-features = ["rt", "panic-handler"]
+
+# Profiles live only in the workspace root and apply to every crate.
+[profile.dev]
+# The aarch64-unknown-none target already uses panic=abort (no unwinder on
+# bare metal); stating it keeps things explicit.
+panic = "abort"
+# opt-level 0 makes the async state machines enormous and slow; 1 keeps
+# debug info useful while producing sane code.
+opt-level = 1
+
+[profile.release]
+panic = "abort"
+opt-level = 2
+# One codegen unit + fat LTO: smallest image, most readable disassembly.
+codegen-units = 1
+lto = "fat"
+# DWARF stays in the ELF; objcopy does not put it into kernel8.img, so this
+# is free and makes `llvm-objdump -S` show source next to machine code.
+debug = true
+[[example]]
+name = "pin_toggle"
+required-features = ["rt", "panic-handler"]
+[[example]]
+name = "uart_diag"
+required-features = ["rt", "panic-handler"]
+[[example]]
+name = "soft_uart_diag"
+required-features = ["rt", "panic-handler"]
+[[example]]
+name = "pin8_probe"
+required-features = ["rt", "panic-handler"]
+[[example]]
+name = "chainloader"
+required-features = ["rt", "panic-handler"]

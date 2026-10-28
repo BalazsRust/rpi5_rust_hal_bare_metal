@@ -1,0 +1,249 @@
+#!/usr/bin/env python3
+"""pi5-generate: create a new bare-metal Raspberry Pi 5 project (like esp-generate).
+
+    pi5-generate                 # asks for the name and the template
+    pi5-generate my_robot        # asks only for the template
+    pi5-generate my_robot -t uart
+
+Creates ./<name>/ with Cargo.toml, .cargo/config.toml and src/main.rs that
+use pi5_hal from this repository. Then:
+
+    cd <name>
+    cargo run --release          # builds, sends it to the Pi, opens a terminal
+
+`cargo run` needs the chainloader on the boot stick (kernel=chainloader.img,
+kernel_address=0x2000000) and the ESP32 bridge on /dev/ttyUSB0 (or set
+PI5_PORT). Power-cycle the Pi when it says so.
+"""
+import argparse
+import os
+import re
+import sys
+
+HAL = os.path.normpath(os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+
+TEMPLATES = {
+    "uart": "LED + serial: prints hello, echoes what you type, LED toggles per key",
+    "blink": "LED only: blinks the LED on physical pin 40 (GPIO21)",
+    "async": "async tasks (embassy style): one task blinks, one prints every second",
+}
+
+HEADER = """\
+#![no_std]
+#![no_main]
+
+// Wiring (header pins: "physical pin N", GPIO numbers: "GPIOx"):
+//   LED + resistor   physical pin 40 (GPIO21) -> LED -> GND
+//   serial TX        physical pin 8  (GPIO14) -> ESP32 GPIO25
+//   serial RX        physical pin 10 (GPIO15) <- ESP32 GPIO26
+"""
+
+MAIN = {
+    "blink": HEADER + """
+use pi5_hal::delay::Delay;
+use pi5_hal::gpio::{Level, Output, OutputConfig};
+
+pi5_hal::entry!(main);
+
+fn main() -> ! {
+    let p = pi5_hal::init();
+    let delay = Delay::new();
+    let mut led = Output::new(p.GPIO21, Level::Low, OutputConfig::default());
+
+    loop {
+        led.toggle();
+        delay.delay_millis(500);
+    }
+}
+""",
+    "uart": HEADER + """
+use core::fmt::Write;
+use pi5_hal::gpio::{Level, Output, OutputConfig};
+use pi5_hal::uart::{Config, Uart};
+
+pi5_hal::entry!(main);
+
+fn main() -> ! {
+    let p = pi5_hal::init();
+    let mut led = Output::new(p.GPIO21, Level::High, OutputConfig::default());
+    let mut uart = Uart::new(p.UART0, Config::default().with_baudrate(115_200))
+        .unwrap()
+        .with_tx(p.GPIO14)
+        .with_rx(p.GPIO15);
+
+    writeln!(uart, "hello from {{NAME}}! type something:").unwrap();
+
+    loop {
+        // Errors (noise on the wire) are ignored on purpose.
+        if let Ok(b) = uart.read_byte() {
+            uart.write_byte(b);
+            if b == b'\\r' {
+                uart.write_byte(b'\\n');
+            }
+            led.toggle();
+        }
+    }
+}
+""",
+    "async": HEADER + """
+use core::fmt::Write;
+use pi5_executor::Spawner;
+use pi5_hal::Async;
+use pi5_hal::gpio::{Level, Output, OutputConfig};
+use pi5_hal::uart::{Config, Uart};
+use pi5_time::{Duration, Instant, Timer};
+
+#[pi5_executor::main]
+async fn main(spawner: Spawner) {
+    let p = pi5_hal::init();
+    let led = Output::new(p.GPIO21, Level::Low, OutputConfig::default());
+    let uart = Uart::new(p.UART0, Config::default().with_baudrate(115_200))
+        .unwrap()
+        .with_tx(p.GPIO14)
+        .with_rx(p.GPIO15)
+        .into_async();
+
+    spawner.spawn(blink(led).unwrap());
+    spawner.spawn(heartbeat(uart).unwrap());
+}
+
+#[pi5_executor::task]
+async fn blink(mut led: Output) {
+    loop {
+        led.toggle();
+        Timer::after(Duration::from_millis(250)).await;
+    }
+}
+
+#[pi5_executor::task]
+async fn heartbeat(mut uart: Uart<Async>) {
+    let start = Instant::now();
+    loop {
+        let _ = writeln!(uart, "{{NAME}} alive for {} ms", start.elapsed().as_millis());
+        Timer::after_secs(1).await;
+    }
+}
+""",
+}
+
+CARGO_TOML = """\
+[package]
+name = "{name}"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pi5-hal = {{ path = "{hal}" }}
+{extra_deps}
+[profile.dev]
+panic = "abort"
+opt-level = 1
+
+[profile.release]
+panic = "abort"
+opt-level = 2
+codegen-units = 1
+lto = "fat"
+debug = true
+"""
+
+ASYNC_DEPS = """\
+pi5-executor = {{ path = "{hal}/crates/pi5-executor" }}
+pi5-time = {{ path = "{hal}/crates/pi5-time" }}
+pi5-futures = {{ path = "{hal}/crates/pi5-futures" }}
+pi5-sync = {{ path = "{hal}/crates/pi5-sync" }}
+"""
+
+CARGO_CONFIG = """\
+# Bare-metal Raspberry Pi 5 (no OS, no std).
+[build]
+target = "aarch64-unknown-none"
+
+[target.aarch64-unknown-none]
+rustflags = [
+    # Run at 0x200000: where the UART chainloader puts programs. Must come
+    # BEFORE -Tlink.ld, or lld lays the image out at link.ld's default 0x80000.
+    "-C", "link-arg=--defsym=__load_address=0x200000",
+    # Memory layout from pi5_hal's link.ld (found via pi5-hal's build.rs).
+    "-C", "link-arg=-Tlink.ld",
+]
+# `cargo run --release`: ELF -> flat image -> sent to the Pi over serial,
+# then a terminal to the program (Ctrl-C quits).
+runner = "python3 {hal}/tools/pi5run.py"
+"""
+
+README = """\
+# {name}
+
+Bare-metal Raspberry Pi 5 program using pi5_hal ({hal}).
+
+    cargo run --release     # build, send to the Pi, open a terminal (Ctrl-C quits)
+    cargo build --release   # only build
+
+When it says so, power the Pi off and on: the chainloader on the boot stick
+waits for the program right after boot. Serial port: /dev/ttyUSB0, or
+`PI5_PORT=/dev/ttyACM0 cargo run --release`.
+"""
+
+
+def ask(prompt, default=None):
+    suffix = f" [{default}]" if default else ""
+    try:
+        answer = input(f"{prompt}{suffix}: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        sys.exit(1)
+    return answer or default
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("name", nargs="?", help="project name (also the directory name)")
+    ap.add_argument("-t", "--template", choices=TEMPLATES, help="starting code")
+    args = ap.parse_args()
+
+    name = args.name
+    while not name or not re.fullmatch(r"[a-z][a-z0-9_]*", name):
+        if name:
+            print("  use lowercase letters, digits and _ (start with a letter), e.g. my_robot")
+        name = ask("Project name")
+
+    template = args.template
+    if not template:
+        print("Templates:")
+        keys = list(TEMPLATES)
+        for i, key in enumerate(keys, 1):
+            print(f"  {i}) {key:6} {TEMPLATES[key]}")
+        while template not in TEMPLATES:
+            choice = ask("Template", "1")
+            template = keys[int(choice) - 1] if choice.isdigit() and 1 <= int(choice) <= len(keys) else choice
+
+    root = os.path.abspath(name)
+    if os.path.exists(root):
+        sys.exit(f"{root} already exists")
+    if root.startswith(HAL + os.sep):
+        sys.exit("create the project outside the pi5_hal folder (cargo would mix up the workspaces)")
+
+    os.makedirs(os.path.join(root, "src"))
+    os.makedirs(os.path.join(root, ".cargo"))
+    files = {
+        "Cargo.toml": CARGO_TOML.format(
+            name=name, hal=HAL, extra_deps=ASYNC_DEPS.format(hal=HAL) if template == "async" else ""
+        ),
+        ".cargo/config.toml": CARGO_CONFIG.format(hal=HAL),
+        "src/main.rs": MAIN[template].replace("{{NAME}}", name),
+        ".gitignore": "/target\n",
+        "README.md": README.format(name=name, hal=HAL),
+    }
+    for rel, text in files.items():
+        with open(os.path.join(root, rel), "w") as f:
+            f.write(text)
+
+    print(f"\nCreated {root} ({template} template). Next:\n")
+    print(f"  cd {name}")
+    print("  cargo run --release\n")
+    print("Then power-cycle the Pi when it says so.")
+
+
+if __name__ == "__main__":
+    main()

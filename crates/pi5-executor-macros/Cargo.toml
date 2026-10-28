@@ -1,0 +1,16 @@
+[package]
+name = "pi5-executor-macros"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "#[main] and #[task] attribute macros for pi5-executor (compiled for the host, never for the Pi)"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+# Standard proc-macro toolkit: parse Rust syntax (syn), produce Rust syntax (quote).
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"

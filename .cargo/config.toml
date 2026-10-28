@@ -1,0 +1,23 @@
+# Cargo configuration for building pi5-hal and its examples.
+#
+# This file is only picked up when cargo is run from inside this directory
+# (or a sub-directory). If you use pi5-hal as a dependency from another
+# crate, copy this file into that crate's `.cargo/` directory.
+
+[build]
+# Bare-metal 64-bit ARM: no OS, no libc, no std. The firmware jumps straight
+# into our code. `rustup target add aarch64-unknown-none` installs it.
+target = "aarch64-unknown-none"
+
+[target.aarch64-unknown-none]
+rustflags = [
+    # Tell the linker (rust-lld, GNU-ld compatible) to lay the image out
+    # according to our script. The script is found because pi5-hal's
+    # build.rs copies `link.ld` into its OUT_DIR and adds that directory to
+    # the linker search path (`cargo:rustc-link-search`).
+    "-C", "link-arg=-Tlink.ld",
+
+    # Optional: let LLVM schedule for the Pi 5's Cortex-A76. Left off so the
+    # code stays plain ARMv8.0-A and easy to read in a disassembler.
+    # "-C", "target-cpu=cortex-a76",
+]

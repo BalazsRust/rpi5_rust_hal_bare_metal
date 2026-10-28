@@ -1,0 +1,9 @@
+[package]
+name = "pi5-futures"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Layer 2: select / join / yield_now / block_on (embassy-futures shaped)"
+
+[dependencies]

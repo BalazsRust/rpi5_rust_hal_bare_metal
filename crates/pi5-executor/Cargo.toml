@@ -1,0 +1,10 @@
+[package]
+name = "pi5-executor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Layer 2: an embassy-shaped async executor for the Raspberry Pi 5 (one executor per core)"
+
+[dependencies]
+pi5-executor-macros = { path = "../pi5-executor-macros" }

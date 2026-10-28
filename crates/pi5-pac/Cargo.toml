@@ -1,0 +1,9 @@
+[package]
+name = "pi5-pac"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Layer 0: register addresses and bit definitions for the Raspberry Pi 5 (BCM2712 + RP1)"
+
+[dependencies]

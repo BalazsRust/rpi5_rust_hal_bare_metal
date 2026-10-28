@@ -1,0 +1,11 @@
+[package]
+name = "pi5-time"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Layer 2: Duration, Instant, Timer, Ticker (embassy-time shaped) for the Raspberry Pi 5"
+
+[dependencies]
+pi5-executor = { path = "../pi5-executor" }
+embedded-hal = "1.0"
