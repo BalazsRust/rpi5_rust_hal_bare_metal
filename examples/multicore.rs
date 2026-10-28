@@ -38,7 +38,8 @@ static MESSAGES: Channel<CriticalSectionRawMutex, Msg, 16> = Channel::new();
 
 #[pi5_executor::main]
 async fn main(spawner: Spawner) {
-    let p = pi5_hal::init();
+    // Uses core 3 itself, so no reset watch (see pi5_hal::reset).
+    let p = pi5_hal::init_without_reset_watch();
     let mut uart = Uart::new(p.UART10, Config::default()).unwrap().into_async();
     let _ = writeln!(uart, "multicore: core {} running main, MMU {}", cpu::core_id(), if mmu::is_enabled() { "on" } else { "off" });
 

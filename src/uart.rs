@@ -550,6 +550,17 @@ impl<Dm: DriverMode> Uart<Dm> {
         Ok(data.len())
     }
 
+    /// Put one byte into the transmit FIFO if there is room; never waits.
+    /// Used by the log buffer ([`crate::log`]).
+    pub(crate) fn try_push_byte(&mut self, b: u8) -> bool {
+        if flag(self.base, r::FR_TXFF) != 0 {
+            return false;
+        }
+        // SAFETY: we own the UART and the FIFO has room.
+        unsafe { write32(self.base + r::DR, u32::from(b)) };
+        true
+    }
+
     async fn do_read(&mut self, buf: &mut [u8]) -> Result<usize, RxError> {
         if buf.is_empty() {
             return Ok(0);

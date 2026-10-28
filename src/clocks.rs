@@ -116,6 +116,13 @@ pub fn enable_pwm0_clock() -> u32 {
     program_aux_clock(r::CLK_PWM0_CTRL, r::CLK_PWM0_DIV_INT, Some(r::CLK_PWM0_DIV_FRAC), r::pwm0_aux::XOSC, XOSC_HZ, 1)
 }
 
+/// Run `clk_adc` from the crystal: 50 MHz (its maximum). Idempotent.
+/// Returns the measured frequency, or the programmed one if measuring fails.
+pub fn enable_adc_clock() -> u32 {
+    let programmed = program_aux_clock(r::CLK_ADC_CTRL, r::CLK_ADC_DIV_INT, None, r::adc_aux::XOSC, XOSC_HZ, 1);
+    measure(r::FC_SRC_CLK_ADC).unwrap_or(programmed)
+}
+
 /// Run `clk_uart` (RP1's UART0-5) from the crystal: 50 MHz. Idempotent.
 /// 50 MHz / (16 x 115200) = 27.13, which the PL011's fractional divider
 /// handles with 0.006 % error.

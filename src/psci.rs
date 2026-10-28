@@ -58,6 +58,13 @@ pub unsafe fn cpu_on(target_mpidr: u64, entry: usize, context: usize) -> Result<
     if r == ids::SUCCESS { Ok(()) } else { Err(r) }
 }
 
+/// Is a core on? PSCI `AFFINITY_INFO`: 0 = on, 1 = off, 2 = on pending,
+/// negative = error.
+pub fn affinity_info(target_mpidr: u64) -> i64 {
+    // SAFETY: a query, no side effects.
+    unsafe { smc(ids::AFFINITY_INFO_64, target_mpidr, 0, 0) }
+}
+
 /// Describe a PSCI error code.
 pub fn error_name(code: i64) -> &'static str {
     match code {
@@ -81,11 +88,10 @@ pub fn cpu_off() -> i64 {
     unsafe { smc(ids::CPU_OFF, 0, 0, 0) }
 }
 
-/// Reboot the whole system. If the firmware does not implement it, halts.
+/// Reboot the whole system. If the firmware does not implement it, falls
+/// back to the watchdog (see [`crate::reset::system_reset`]).
 pub fn system_reset() -> ! {
-    // SAFETY: intended effect.
-    unsafe { smc(ids::SYSTEM_RESET, 0, 0, 0) };
-    crate::cpu::halt()
+    crate::reset::system_reset()
 }
 
 /// Power the system off. If the firmware does not implement it, halts.

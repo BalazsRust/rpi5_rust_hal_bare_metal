@@ -199,7 +199,11 @@ fn main() -> ! {
         .with_tx(p.GPIO14)
         .with_rx(p.GPIO15);
 
-    let _ = writeln!(uart, "\n[chainloader] ready at 0x2000000, loads to {LOAD_ADDR:#x} (staging at {STAGE_ADDR:#x}). Waiting for image...");
+    match pi5_hal::reset::watch_status() {
+        Ok(()) => { let _ = writeln!(uart, "\n[chainloader] reset watch: running on core 3 (cargo run can restart the Pi)"); }
+        Err(why) => { let _ = writeln!(uart, "\n[chainloader] reset watch NOT working: {why}"); }
+    }
+    let _ = writeln!(uart, "[chainloader] ready at 0x2000000, loads to {LOAD_ADDR:#x} (staging at {STAGE_ADDR:#x}). Waiting for image...");
 
     let mut matched = 0usize;
     let mut idle = Timeout::new(Duration::from_millis(500));
@@ -274,6 +278,10 @@ fn main() -> ! {
                 // the cache OFF (straight to RAM) and then turns the cache
                 // on; an old cached copy of that memory would then hide the
                 // new tables and it would crash before doing anything.
+                // Core 3 (our reset watch) keeps running: it lives up here at
+                // 0x2000000, which programs loaded at 0x200000 don't touch, so
+                // `cargo run` can restart the Pi whatever they do. (Switching
+                // core 3 off and on again via PSCI left it dead on the Pi 5.)
                 dcache_clean_invalidate_range(LOAD_ADDR, LOAD_ADDR + MAX_SIZE);
                 // SAFETY: a complete, CRC-checked image is at LOAD_ADDR.
                 unsafe { jump_to(LOAD_ADDR, rt::dtb_address()) }

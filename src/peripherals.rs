@@ -9,6 +9,7 @@
 use crate::gpio::*;
 use crate::i2c::{I2C0, I2C1, I2C2, I2C3};
 use crate::multicore::{CORE1, CORE2, CORE3};
+use crate::adc::ADC;
 use crate::pwm::PWM0;
 use crate::spi::{SPI0, SPI1};
 use crate::uart::{UART0, UART10};
@@ -96,6 +97,8 @@ pub struct Peripherals {
     pub SPI1: SPI1,
     /// RP1 PWM0 (GPIO12/13/18/19).
     pub PWM0: PWM0,
+    /// RP1 ADC (temperature sensor; its inputs are not on the Pi 5 header).
+    pub ADC: ADC,
 
     /// CPU core 1 (see [`crate::multicore`]).
     pub CORE1: CORE1,
@@ -161,6 +164,7 @@ impl Peripherals {
             SPI0: SPI0::new(),
             SPI1: SPI1::new(),
             PWM0: PWM0::new(),
+            ADC: ADC::new(),
             CORE1: CORE1::new(),
             CORE2: CORE2::new(),
             CORE3: CORE3::new(),

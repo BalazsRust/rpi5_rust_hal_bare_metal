@@ -11,6 +11,8 @@ use core::panic::PanicInfo;
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
+    // Log lines still waiting in the buffer go out first, in order.
+    crate::log::flush_for_panic();
     // SAFETY: normal execution on this core is over.
     let mut uart = unsafe { crate::uart::Uart::<crate::Blocking>::emergency() };
     // `PanicInfo`'s Display prints "panicked at <file>:<line>:<col>:\n<msg>".

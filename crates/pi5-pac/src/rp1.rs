@@ -46,6 +46,8 @@ pub const CLOCKS_BASE: usize = cpu_addr(0x4001_8000);
 /// PL011 UART0 (`rp1.dtsi:62-64`: `serial@30000`). Header pins GPIO14/15 at
 /// FSEL 4 (see [`crate::rp1_pins`]). Clocked by `clk_uart`.
 pub const UART0_BASE: usize = cpu_addr(0x4003_0000);
+/// RP1 ADC (`rp1.dtsi`: `adc@c8000`, reg 0x400c8000, 0x4000 long).
+pub const ADC_BASE: usize = cpu_addr(0x400c_8000);
 /// PL011 UART1..5 (`rp1.dtsi:79-158`), 0x4000 apart.
 pub const UART1_BASE: usize = cpu_addr(0x4003_4000);
 

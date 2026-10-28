@@ -47,7 +47,7 @@ list of assumptions is at the end of this file. The first thing to run is
                        pi5-time       Duration, Instant, Timer, Ticker, with_timeout
                        pi5-sync       Channel, Signal, Mutex (across tasks and cores)
                        pi5-futures    select, join, yield_now, block_on
-  Layer 1  drivers     pi5-hal        gpio, uart, i2c, spi, pwm (Blocking + Async),
+  Layer 1  drivers     pi5-hal        gpio, uart, i2c, spi, pwm, mcpwm (Blocking + Async),
                                       rt (startup), mmu, multicore, psci, Peripherals
   Layer 0  registers   pi5-pac        addresses and bit definitions, each with its source
   ---------------------------------------------------------------------------
@@ -120,6 +120,7 @@ the micro-HDMI ports (or the Raspberry Pi Debug Probe), 115200 8N1.
 | `i2c_scan`     | `I2c` on GPIO2/3, like `i2cdetect`                                 | any I2C device on pins 3/5          |
 | `spi_loopback` | `Spi` on SPI0, hardware CS                                         | jumper GPIO10 (pin 19) to GPIO9 (21)|
 | `pwm_fade`     | `Pwm` channel 0 breathing an LED                                   | LED on GPIO12 (pin 32)              |
+| `mcpwm_demo`   | `McPwm` complementary pair with dead time + one single output      | LEDs on GPIO12/13/18 (pins 32/33/12) |
 
 ## API cheat sheet
 
@@ -150,6 +151,13 @@ spi.transfer_in_place(&mut buf)?;  spi.write(&tx)?;  spi.transfer(&mut rx, &tx)?
 let mut pwm = Pwm::new(p.PWM0);
 let mut ch = pwm.channel(p.GPIO12, ChannelConfig::default().with_frequency(Rate::from_khz(1)))?;
 ch.set_duty_cycle_percent(30)?;   // embedded_hal::pwm::SetDutyCycle
+
+// Motor-control PWM (ESP32 MCPWM style): shared timer, centre-aligned,
+// complementary pair with 500 ns dead time
+let mut mcpwm = McPwm::new(p.PWM0, TimerConfig::new(Rate::from_khz(20)))?;
+let mut bridge = mcpwm.complementary(p.GPIO12, p.GPIO13, 500)?;
+mcpwm.start();
+bridge.set_duty_percent(40);
 
 // async runtime (embassy names)
 #[pi5_executor::main] async fn main(spawner: Spawner) { spawner.spawn(task(args).unwrap()); }

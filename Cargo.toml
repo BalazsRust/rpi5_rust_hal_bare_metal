@@ -41,6 +41,9 @@ pi5-pac = { path = "crates/pi5-pac" }
 # The standard embedded traits (OutputPin, I2c, SpiBus, DelayNs, SetDutyCycle...).
 # No dependencies of its own.
 embedded-hal = "1.0"
+# Lets crates like heapless / embassy-sync / once_cell lock across cores
+# and interrupts (implementation: src/critical_section_impl.rs).
+critical-section = { version = "1.2", features = ["restore-state-u64"], optional = true }
 
 [dev-dependencies]
 # Only the examples use the async layer; the HAL itself does not depend on it
@@ -51,18 +54,28 @@ pi5-futures = { path = "crates/pi5-futures" }
 pi5-sync = { path = "crates/pi5-sync" }
 
 [features]
-default = ["rt", "panic-handler"]
+default = ["rt", "panic-handler", "critical-section-impl", "reset-watch"]
 # Startup code: `_start`, MMU, stack, .bss, exception vectors, `entry!`,
 # secondary-core entry. Disable only if you bring your own runtime.
 rt = []
 # `#[panic_handler]` printing to the debug UART.
 panic-handler = []
+# Provide the `critical-section` implementation (IRQs off + one lock shared
+# by all 4 cores). Turn off only if you bring your own.
+critical-section-impl = ["dep:critical-section"]
+# `pi5_hal::init()` starts a watcher on core 3 that restarts the Pi when the
+# serial RX line (GPIO15) is held LOW for ~0.3 s: how `cargo run` restarts
+# the Pi by itself. See src/reset.rs.
+reset-watch = ["rt"]
 
 [[example]]
 name = "blink"
 required-features = ["rt", "panic-handler"]
 [[example]]
 name = "button"
+required-features = ["rt", "panic-handler"]
+[[example]]
+name = "adc_temp"
 required-features = ["rt", "panic-handler"]
 [[example]]
 name = "log_demo"
@@ -90,6 +103,15 @@ name = "spi_loopback"
 required-features = ["rt", "panic-handler"]
 [[example]]
 name = "pwm_fade"
+required-features = ["rt", "panic-handler"]
+[[example]]
+name = "mcpwm_demo"
+required-features = ["rt", "panic-handler"]
+[[example]]
+name = "timer_ticker"
+required-features = ["rt", "panic-handler"]
+[[example]]
+name = "cpu_freq"
 required-features = ["rt", "panic-handler"]
 
 # Profiles live only in the workspace root and apply to every crate.

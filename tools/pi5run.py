@@ -34,7 +34,6 @@ def main():
     img = elf + ".img"
     subprocess.run([find_objcopy(), "-O", "binary", elf, img], check=True)
     print(f"[pi5run] {img}: {os.path.getsize(img)} bytes", flush=True)
-    print("[pi5run] power the Pi OFF and ON now (the chainloader waits after boot)", flush=True)
     load = os.path.join(HERE, "pi5load.py")
     os.execvp(sys.executable, [sys.executable, load, img, "--exact", *sys.argv[2:]])
 

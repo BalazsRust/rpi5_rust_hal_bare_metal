@@ -76,6 +76,18 @@ pub mod pwm0_aux {
     pub const CLKSRC_GP0: u32 = 3;
 }
 
+/// `CLK_ADC_CTRL` (`clk-rp1.c:123`).
+pub const CLK_ADC_CTRL: usize = 0x0144;
+/// `CLK_ADC_DIV_INT` (8-bit divider).
+pub const CLK_ADC_DIV_INT: usize = 0x0148;
+/// `CLK_ADC_SEL`.
+pub const CLK_ADC_SEL: usize = 0x0150;
+/// `clk_adc` auxiliary sources (`clk-rp1.c`, `RP1_CLK_ADC`; max 50 MHz).
+pub mod adc_aux {
+    /// The 50 MHz crystal.
+    pub const XOSC: u32 = 0;
+}
+
 /// Aux parents of `clk_uart` (`clk-rp1.c:1900-1910`).
 pub mod uart_aux {
     /// `pll_sys_pri_ph` (100 MHz under Linux).
@@ -123,3 +135,5 @@ pub const FC_SRC_CLK_SYS: u32 = fc_num(0, 4);
 pub const FC_SRC_CLK_PWM0: u32 = fc_num(0, 5);
 /// `clk_uart`'s source (`clk-rp1.c:1911`).
 pub const FC_SRC_CLK_UART: u32 = fc_num(6, 7);
+/// `clk_adc`'s source (`clk-rp1.c`, `fc0_src = FC_NUM(5, 5)`).
+pub const FC_SRC_CLK_ADC: u32 = fc_num(5, 5);

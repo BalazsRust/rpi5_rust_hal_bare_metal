@@ -4,6 +4,13 @@ use crate::raw;
 use crate::spawner::Spawner;
 use core::marker::PhantomData;
 
+unsafe extern "C" {
+    /// Called every time the executor is about to sleep. pi5-hal uses it to
+    /// send buffered `info!` output (`pi5_hal::log::drain`), so logging
+    /// never makes a task late.
+    fn __pi5_executor_idle();
+}
+
 /// An executor that owns its core's main loop.
 ///
 /// ```no_run
@@ -51,6 +58,9 @@ impl Executor {
             if next_deadline != u64::MAX && crate::time_driver::now() >= next_deadline {
                 continue;
             }
+            // Nothing to do: let pi5-hal send buffered log text, then sleep.
+            // SAFETY: pi5-hal defines the hook; it never blocks.
+            unsafe { __pi5_executor_idle() };
             // SAFETY: wfe only sleeps the core.
             unsafe { core::arch::asm!("wfe", options(nomem, nostack, preserves_flags)) };
         }

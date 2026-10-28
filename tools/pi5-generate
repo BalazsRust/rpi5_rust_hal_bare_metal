@@ -96,7 +96,7 @@ fn main() -> ! {
 use pi5_executor::Spawner;
 use pi5_hal::gpio::{Level, Output, OutputConfig};
 use pi5_hal::info;
-use pi5_time::{Duration, Instant, Timer};
+use pi5_time::{Duration, Instant, Ticker, Timer};
 
 #[pi5_executor::main]
 async fn main(spawner: Spawner) {
@@ -110,9 +110,11 @@ async fn main(spawner: Spawner) {
 
 #[pi5_executor::task]
 async fn blink(mut led: Output) {
+    // Ticker: a fixed beat, even if the loop body takes a while.
+    let mut ticker = Ticker::every(Duration::from_millis(250));
     loop {
         led.toggle();
-        Timer::after(Duration::from_millis(250)).await;
+        ticker.next().await;
     }
 }
 
@@ -121,7 +123,9 @@ async fn heartbeat() {
     let start = Instant::now();
     loop {
         info!("alive for {} ms", start.elapsed().as_millis());
-        Timer::after_secs(1).await;
+        // Timer: wait this long from now. info! doesn't block, so this
+        // still gives 0, 1000, 2000, ... ms.
+        Timer::after_millis(1000).await;
     }
 }
 """,

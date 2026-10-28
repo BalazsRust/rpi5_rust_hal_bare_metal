@@ -60,6 +60,8 @@ pub mod psci {
     /// `CPU_ON`, SMC64 calling convention (5.1.4): x1 = target MPIDR,
     /// x2 = entry point physical address, x3 = context id (lands in x0).
     pub const CPU_ON_64: u32 = 0xC400_0003;
+    /// `AFFINITY_INFO` (SMC64): 0 = core on, 1 = off, 2 = on pending.
+    pub const AFFINITY_INFO_64: u32 = 0xC400_0004;
     /// `SYSTEM_OFF` (5.1.8).
     pub const SYSTEM_OFF: u32 = 0x8400_0008;
     /// `SYSTEM_RESET` (5.1.9).

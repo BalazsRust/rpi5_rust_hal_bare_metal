@@ -30,6 +30,7 @@
 #![warn(missing_docs)]
 
 pub mod bcm2712;
+pub mod rp1_adc;
 pub mod dw_i2c;
 pub mod dw_spi;
 pub mod mmio;

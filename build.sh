@@ -24,7 +24,7 @@ if [ $# -ge 1 ]; then
     EXAMPLES=("$@")
     DEFAULT="$1"
 else
-    EXAMPLES=(blink button uart_hello log_demo pin_toggle soft_uart_diag uart_diag async_blink uart_sender async_tasks multicore i2c_scan spi_loopback pwm_fade)
+    EXAMPLES=(blink button uart_hello log_demo adc_temp pin_toggle soft_uart_diag uart_diag async_blink uart_sender async_tasks multicore i2c_scan spi_loopback pwm_fade mcpwm_demo timer_ticker cpu_freq)
     DEFAULT=blink
 fi
 

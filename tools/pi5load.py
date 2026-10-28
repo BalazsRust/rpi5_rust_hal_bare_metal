@@ -31,8 +31,45 @@ import serial  # pyserial
 
 DEFAULT_PORT = os.environ.get("PI5_PORT", "/dev/ttyUSB0")
 
+# Everything (our messages + each chunk received from the Pi, with time and
+# exact bytes) also goes to out/pi5load.log, so it can be read afterwards.
+LOG_PATH = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "out", "pi5load.log"))
+T0 = time.time()
+_log = None
+
+
+def log_rx(data):
+    """Record a chunk received from the Pi: time since start + exact bytes."""
+    if _log:
+        _log.write(f"\n<{time.time() - T0:8.3f}s RX {len(data)}B {data!r}>\n")
+        _log.flush()
+
+
+class _Tee:
+    """sys.stdout replacement: screen AND log file."""
+
+    def __init__(self, screen):
+        self.screen = screen
+
+    def write(self, text):
+        self.screen.write(text)
+        if _log:
+            _log.write(text)
+            _log.flush()
+
+    def flush(self):
+        self.screen.flush()
+
+    def fileno(self):
+        return self.screen.fileno()
+
+    def isatty(self):
+        return self.screen.isatty()
+
 MAGIC = b"PI5LOAD!"
-CHUNK = 64          # bytes per write
+RESET_MAGIC = b"\x00PI5-RESTART-NOW\x00"  # must match ~/esp32rpi5 src/bin/main.rs
+CHUNK = 256         # bytes per write
+PACE = 1.05         # send at 1/1.05 of the line rate (see the send loop)
 BAUD = 115200
 
 
@@ -43,6 +80,7 @@ def wait_for(port, needle, timeout):
     while time.time() < end:
         data = port.read(256)
         if data:
+            log_rx(data)
             sys.stdout.write(data.decode("utf-8", "replace"))
             sys.stdout.flush()
             buf = (buf + data)[-1024:]
@@ -57,6 +95,7 @@ def main():
     ap.add_argument("--port", default=DEFAULT_PORT, help="serial port (default /dev/ttyUSB0, or $PI5_PORT)")
     ap.add_argument("--wait", type=float, default=60, help="seconds to wait for the chainloader (default 60)")
     ap.add_argument("--no-wait", action="store_true", help="send immediately, don't wait for the ready line")
+    ap.add_argument("--no-reset", action="store_true", help="don't restart the Pi first")
     ap.add_argument("--exact", action="store_true", help="send the given file as it is (it must be linked at 0x200000); used by pi5run.py")
     args = ap.parse_args()
 
@@ -80,9 +119,21 @@ def main():
         print(f"[pi5load] can't open {args.port}: {e}")
         print("          Is the ESP32 plugged in? Is a monitor (cargo run / espflash / tio) still using the port? Close it.")
         return 1
+    # The board's (clone) CP2102 replays its last bytes for ~20 ms after the
+    # port is opened. Wait that out and throw it away before talking.
+    time.sleep(0.2)
+    port.reset_input_buffer()
 
+    if not args.no_reset:
+        # Magic text the ESP32 bridge recognises: it then holds the Pi's RX
+        # LOW for 0.3 s and the Pi's reset watch (pi5_hal::reset, core 3)
+        # restarts it. (Not a serial BREAK: that jammed the CP2102 chip.)
+        print("[pi5load] restarting the Pi...")
+        port.write(RESET_MAGIC)
+        port.flush()
     if not args.no_wait:
-        print(f"[pi5load] waiting up to {args.wait:.0f} s for the chainloader (power-cycle the Pi now)...")
+        print(f"[pi5load] waiting up to {args.wait:.0f} s for the chainloader "
+              "(if nothing happens in ~15 s, power-cycle the Pi by hand)...")
         if not wait_for(port, b"aiting for image", args.wait):
             print("\n[pi5load] no chainloader seen; try --no-wait if it is already waiting")
             return 1
@@ -103,16 +154,23 @@ def main():
         print("\n[pi5load] chainloader never answered GO: PC->Pi bytes are not arriving (check wire Pi physical pin 10 (GPIO15) <- ESP32 GPIO26, and that the ESP32 bridge runs)")
         return 1
     payload = struct.pack("<I", len(image)) + image + struct.pack("<I", crc)
+    # Pace against one clock: chunk k may only go out once the line has had
+    # time to carry everything before it (+5 %). The ESP32 forwards at the
+    # same 115200, so the 5 % covers small baud-rate differences and its
+    # FIFOs (128 B each way) never overflow. No flush/sleep per chunk: that
+    # used to waste more time than the transfer itself.
     start = time.time()
     for i in range(0, len(payload), CHUNK):
         chunk = payload[i:i + CHUNK]
+        due = start + i * byte_time * PACE
+        if due > time.time():
+            time.sleep(due - time.time())
         port.write(chunk)
-        port.flush()
-        time.sleep(len(chunk) * byte_time * 1.25)
-        if i % (CHUNK * 64) == 0:
+        if i % (CHUNK * 16) == 0:
             pct = 100 * i // len(payload)
             sys.stdout.write(f"\r[pi5load] sending... {pct:3d}%")
             sys.stdout.flush()
+    port.flush()
     print(f"\r[pi5load] sent {len(payload)} bytes in {time.time() - start:.1f} s")
 
     if not wait_for(port, b"OK\r", 8):
@@ -123,6 +181,7 @@ def main():
         while time.time() - t0 < 20:
             data = port.read(256)
             if data:
+                log_rx(data)
                 sys.stdout.write(f"\n[+{time.time() - t0:4.1f}s] " + data.decode("utf-8", "replace"))
                 sys.stdout.flush()
         print("\n[pi5load] no OK from the chainloader")
@@ -155,6 +214,7 @@ def terminal(port):
             if port in ready:
                 data = port.read(port.in_waiting or 1)
                 if data:
+                    log_rx(data)
                     os.write(sys.stdout.fileno(), data)
             if fd in ready:
                 keys = os.read(fd, 64)
@@ -166,6 +226,12 @@ def terminal(port):
         print("\n[pi5load] stopped")
 
 if __name__ == "__main__":
+    os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+    # Append (every run is kept); start over once the file passes 2 MB.
+    mode = "w" if os.path.exists(LOG_PATH) and os.path.getsize(LOG_PATH) > 2_000_000 else "a"
+    _log = open(LOG_PATH, mode)
+    _log.write(f"\n===== pi5load {' '.join(sys.argv[1:])}  started {time.ctime(T0)} =====\n")
+    sys.stdout = _Tee(sys.stdout)
     try:
         sys.exit(main())
     except KeyboardInterrupt:

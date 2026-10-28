@@ -598,6 +598,11 @@ impl Input {
 }
 
 #[inline]
+/// Current input level of GPIO `number` (true = high), without owning it.
+pub(crate) fn input_level(number: u8) -> bool {
+    read_in(pin_regs(number))
+}
+
 fn read_in(r: PinRegs) -> bool {
     // SAFETY: reading IN has no side effects.
     unsafe { read32(r.rio + regs::RIO_IN) & r.mask != 0 }

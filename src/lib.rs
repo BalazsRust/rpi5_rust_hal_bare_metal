@@ -39,7 +39,7 @@
 //!   your program          examples/*.rs
 //!   ------------------------------------------------------------------
 //!   Layer 2  async        pi5-executor  pi5-time  pi5-sync  pi5-futures
-//!   Layer 1  drivers      pi5-hal (this crate): gpio uart i2c spi pwm,
+//!   Layer 1  drivers      pi5-hal (this crate): gpio uart i2c spi pwm mcpwm,
 //!                         rt (startup), mmu, multicore, Peripherals
 //!   Layer 0  registers    pi5-pac: addresses + bit definitions, cited
 //!   ------------------------------------------------------------------
@@ -80,6 +80,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![warn(missing_docs)]
 
+pub mod adc;
 mod asyncutil;
 pub mod clocks;
 pub mod cpu;
@@ -87,11 +88,15 @@ pub mod delay;
 pub mod gpio;
 pub mod i2c;
 pub mod log;
+pub mod mcpwm;
+#[cfg(feature = "critical-section-impl")]
+mod critical_section_impl;
 pub mod mmu;
 pub mod multicore;
 pub mod peripherals;
 pub mod psci;
 pub mod pwm;
+pub mod reset;
 pub mod spi;
 pub mod sync;
 pub mod time;
@@ -116,7 +121,29 @@ pub use pi5_pac as pac;
 /// Take the peripherals, panicking if they were already taken.
 ///
 /// Equivalent to `Peripherals::take().unwrap()`, mirroring `esp_hal::init`.
+///
+/// With the `reset-watch` feature (default) this also starts the reset
+/// watch on CPU core 3 (see [`reset`]): `cargo run` can then restart the Pi
+/// by itself. That uses core 3 and GPIO15 (UART0 RX, physical pin 10); use
+/// [`init_without_reset_watch`] if your program needs either for itself.
 pub fn init() -> Peripherals {
+    let p = init_without_reset_watch();
+    #[cfg(feature = "reset-watch")]
+    {
+        // Core 3 is reserved for the reset watch (documented above).
+        // `p.CORE3` stays in the struct so the field layout doesn't depend on
+        // features; starting core 3 again fails cleanly (PSCI: ALREADY_ON).
+        reset::start_watch();
+        if let Err(why) = reset::watch_status() {
+            warn!("reset watch not running ({why}): cargo run can't restart the Pi");
+        }
+    }
+    p
+}
+
+/// Like [`init`], but without the reset watch: core 3 and GPIO15 stay free,
+/// and `cargo run` can't restart the Pi (power-cycle it by hand).
+pub fn init_without_reset_watch() -> Peripherals {
     Peripherals::take().expect("pi5_hal::init() / Peripherals::take() called twice")
 }
 

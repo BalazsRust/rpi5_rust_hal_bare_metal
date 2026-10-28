@@ -21,6 +21,12 @@
 //! high while the counter is below `DUTY` ("trailing-edge mark/space"). So
 //! `frequency = clock / RANGE` and `duty% = DUTY / RANGE`. New values are
 //! latched when `SET_UPDATE` is written to `GLOBAL_CTRL`.
+//!
+//! Other waveforms are picked with [`ChannelConfig::with_mode`] (see
+//! [`Mode`]): centre-aligned, leading-edge, pulse-density, pulse-position.
+//! [`PwmChannel::set_phase_ticks`] shifts a channel against the others.
+//! For motor control (shared timer, complementary pairs with dead time)
+//! use [`crate::mcpwm`] instead.
 
 use crate::clocks;
 use crate::gpio::{AnyPin, Pin, Pull, claim_pin};
@@ -79,6 +85,47 @@ impl embedded_hal::pwm::Error for Error {
     }
 }
 
+/// Waveform a channel produces (`CHANx_CTRL.MODE`). In every mode
+/// `duty% = DUTY / RANGE`; only where the high time sits differs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Mode {
+    /// Normal PWM: the pulse starts at the beginning of each period.
+    #[default]
+    TrailingEdge,
+    /// The pulse ends at the end of each period.
+    LeadingEdge,
+    /// Centre-aligned ("phase-correct"): the pulse sits in the middle of the
+    /// period and grows to both sides. The counter goes down and back up, so
+    /// a period is 2 x RANGE ticks; the frequency you ask for is still what
+    /// you get.
+    CenterAligned,
+    /// Pulse-density: the high ticks are spread out as evenly as possible
+    /// (good for a DAC through an RC filter: much less ripple).
+    PulseDensity,
+    /// Pulse-position: one clock tick high per period, at tick DUTY.
+    PulsePosition,
+}
+
+impl Mode {
+    pub(crate) const fn ctrl_bits(self) -> u32 {
+        match self {
+            Mode::TrailingEdge => r::CTRL_MODE_TRAILING_EDGE_MS,
+            Mode::LeadingEdge => r::CTRL_MODE_LEADING_EDGE_MS,
+            Mode::CenterAligned => r::CTRL_MODE_PHASE_CORRECT,
+            Mode::PulseDensity => r::CTRL_MODE_PDM,
+            Mode::PulsePosition => r::CTRL_MODE_PPM,
+        }
+    }
+
+    /// Clock ticks per output period for a given RANGE.
+    pub(crate) const fn ticks_per_range(self) -> u32 {
+        match self {
+            Mode::CenterAligned => 2,
+            _ => 1,
+        }
+    }
+}
+
 /// Per-channel settings.
 #[derive(Debug, Clone, Copy)]
 pub struct ChannelConfig {
@@ -86,11 +133,13 @@ pub struct ChannelConfig {
     pub frequency: Rate,
     /// Invert the output (high while the counter is *above* DUTY).
     pub inverted: bool,
+    /// Waveform (default [`Mode::TrailingEdge`]).
+    pub mode: Mode,
 }
 
 impl Default for ChannelConfig {
     fn default() -> Self {
-        Self { frequency: Rate::from_khz(1), inverted: false }
+        Self { frequency: Rate::from_khz(1), inverted: false, mode: Mode::TrailingEdge }
     }
 }
 
@@ -103,6 +152,11 @@ impl ChannelConfig {
     /// Set polarity.
     pub const fn with_inverted(mut self, inverted: bool) -> Self {
         self.inverted = inverted;
+        self
+    }
+    /// Set the waveform.
+    pub const fn with_mode(mut self, mode: Mode) -> Self {
+        self.mode = mode;
         self
     }
 }
@@ -135,14 +189,22 @@ impl Pwm {
         if self.taken & (1 << channel) != 0 {
             return Err(Error::ChannelInUse { channel });
         }
-        let range = range_for(self.clock_hz, config.frequency)?;
+        let range = range_for(self.clock_hz, config.frequency, config.mode)?;
 
         // Program the channel before connecting the pad, so the pad never
         // shows a half-configured waveform.
-        let mut ch = PwmChannel { base: self.base, channel, clock_hz: self.clock_hz, range, duty: 0, enabled: false };
+        let mut ch = PwmChannel {
+            base: self.base,
+            channel,
+            clock_hz: self.clock_hz,
+            mode: config.mode,
+            range,
+            duty: 0,
+            enabled: false,
+        };
         // SAFETY: we own the block and this channel is unused.
         unsafe {
-            let mut ctrl = r::CTRL_DEFAULT;
+            let mut ctrl = r::CTRL_FIFO_POP_MASK | config.mode.ctrl_bits();
             if config.inverted {
                 ctrl |= r::CTRL_POLARITY_INVERTED;
             }
@@ -158,12 +220,13 @@ impl Pwm {
     }
 }
 
-fn range_for(clock_hz: u32, frequency: Rate) -> Result<u32, Error> {
-    let hz = frequency.as_hz();
+/// RANGE for `frequency` in `mode` (centre-aligned needs half as much).
+pub(crate) fn range_for(clock_hz: u32, frequency: Rate, mode: Mode) -> Result<u32, Error> {
+    let hz = u64::from(frequency.as_hz()) * u64::from(mode.ticks_per_range());
     if hz == 0 {
         return Err(Error::FrequencyOutOfRange);
     }
-    let range = (u64::from(clock_hz) + u64::from(hz) / 2) / u64::from(hz);
+    let range = (u64::from(clock_hz) + hz / 2) / hz;
     if range < 2 || range > u64::from(u32::MAX) {
         return Err(Error::FrequencyOutOfRange);
     }
@@ -176,6 +239,7 @@ pub struct PwmChannel {
     base: usize,
     channel: u8,
     clock_hz: u32,
+    mode: Mode,
     range: u32,
     duty: u32,
     enabled: bool,
@@ -199,12 +263,27 @@ impl PwmChannel {
 
     /// Actual output frequency.
     pub fn frequency(&self) -> Rate {
-        Rate::from_hz(self.clock_hz / self.range.max(1))
+        Rate::from_hz(self.clock_hz / (self.range.max(1) * self.mode.ticks_per_range()))
+    }
+
+    /// The waveform this channel was set up with.
+    pub fn mode(&self) -> Mode {
+        self.mode
+    }
+
+    /// Shift this channel's waveform: its counter starts `ticks` further on
+    /// (clamped to RANGE). Two channels with the same frequency and phases
+    /// 0 and RANGE/2 are half a period apart. Applied with a restart of the
+    /// counter at the next settings update.
+    pub fn set_phase_ticks(&mut self, ticks: u32) {
+        // SAFETY: we own the channel.
+        unsafe { write32(self.base + r::phase(self.channel), ticks.min(self.range)) };
+        self.latch();
     }
 
     /// Change the frequency, keeping the duty *fraction*.
     pub fn set_frequency(&mut self, frequency: Rate) -> Result<(), Error> {
-        let range = range_for(self.clock_hz, frequency)?;
+        let range = range_for(self.clock_hz, frequency, self.mode)?;
         let duty = ((u64::from(self.duty) * u64::from(range)) / u64::from(self.range.max(1))) as u32;
         self.range = range;
         self.duty = duty;
