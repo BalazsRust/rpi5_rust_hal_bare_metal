@@ -1,3 +1,22 @@
+# Rust build output
 /target
-Cargo.lock.bak
+
+# Images made by build.sh (out/*.img, out/load/*.img) and the upload log
+# (out/pi5load.log). Rebuild with ./build.sh.
+/out/
+
+# Python
+__pycache__/
+*.pyc
+
+# Logs and backups
 *.log
+*.bak
+Cargo.lock.bak
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store

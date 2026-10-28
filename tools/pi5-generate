@@ -13,7 +13,8 @@ use pi5_hal from this repository. Then:
 
 `cargo run` needs the chainloader on the boot stick (kernel=chainloader.img,
 kernel_address=0x2000000) and the ESP32 bridge on /dev/ttyUSB0 (or set
-PI5_PORT). Power-cycle the Pi when it says so.
+PI5_PORT). It restarts the Pi by itself; only the very first time (or
+after a crash that froze the whole Pi) power-cycle it by hand.
 """
 import argparse
 import os
@@ -247,7 +248,7 @@ def main():
     print(f"\nCreated {root} ({template} template). Next:\n")
     print(f"  cd {name}")
     print("  cargo run --release\n")
-    print("Then power-cycle the Pi when it says so.")
+    print("It restarts the Pi by itself (the very first time, power-cycle it by hand).")
 
 
 if __name__ == "__main__":
