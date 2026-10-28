@@ -86,6 +86,7 @@ pub mod cpu;
 pub mod delay;
 pub mod gpio;
 pub mod i2c;
+pub mod log;
 pub mod mmu;
 pub mod multicore;
 pub mod peripherals;

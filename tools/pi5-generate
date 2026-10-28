@@ -23,9 +23,9 @@ import sys
 HAL = os.path.normpath(os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
 
 TEMPLATES = {
-    "uart": "LED + serial: prints hello, echoes what you type, LED toggles per key",
-    "blink": "LED only: blinks the LED on physical pin 40 (GPIO21)",
-    "async": "async tasks (embassy style): one task blinks, one prints every second",
+    "uart": "LED + serial: info! hello, echoes what you type, LED toggles per key",
+    "blink": "blinks the LED on physical pin 40 (GPIO21), info! per blink",
+    "async": "async tasks (embassy style): one blinks, one info!s every second",
 }
 
 HEADER = """\
@@ -42,6 +42,7 @@ MAIN = {
     "blink": HEADER + """
 use pi5_hal::delay::Delay;
 use pi5_hal::gpio::{Level, Output, OutputConfig};
+use pi5_hal::info;
 
 pi5_hal::entry!(main);
 
@@ -50,15 +51,20 @@ fn main() -> ! {
     let delay = Delay::new();
     let mut led = Output::new(p.GPIO21, Level::Low, OutputConfig::default());
 
+    // info!/warn!/error!/debug!/trace! print over serial (no setup needed).
+    info!("{{NAME}} started");
+    let mut n = 0u32;
     loop {
         led.toggle();
+        info!("blink {n}");
+        n += 1;
         delay.delay_millis(500);
     }
 }
 """,
     "uart": HEADER + """
-use core::fmt::Write;
 use pi5_hal::gpio::{Level, Output, OutputConfig};
+use pi5_hal::info;
 use pi5_hal::uart::{Config, Uart};
 
 pi5_hal::entry!(main);
@@ -71,7 +77,8 @@ fn main() -> ! {
         .with_tx(p.GPIO14)
         .with_rx(p.GPIO15);
 
-    writeln!(uart, "hello from {{NAME}}! type something:").unwrap();
+    // info!/warn!/error!/debug!/trace! share this UART (same line, same baud).
+    info!("hello from {{NAME}}! type something:");
 
     loop {
         // Errors (noise on the wire) are ignored on purpose.
@@ -86,25 +93,19 @@ fn main() -> ! {
 }
 """,
     "async": HEADER + """
-use core::fmt::Write;
 use pi5_executor::Spawner;
-use pi5_hal::Async;
 use pi5_hal::gpio::{Level, Output, OutputConfig};
-use pi5_hal::uart::{Config, Uart};
+use pi5_hal::info;
 use pi5_time::{Duration, Instant, Timer};
 
 #[pi5_executor::main]
 async fn main(spawner: Spawner) {
     let p = pi5_hal::init();
     let led = Output::new(p.GPIO21, Level::Low, OutputConfig::default());
-    let uart = Uart::new(p.UART0, Config::default().with_baudrate(115_200))
-        .unwrap()
-        .with_tx(p.GPIO14)
-        .with_rx(p.GPIO15)
-        .into_async();
+    info!("{{NAME}} started");
 
     spawner.spawn(blink(led).unwrap());
-    spawner.spawn(heartbeat(uart).unwrap());
+    spawner.spawn(heartbeat().unwrap());
 }
 
 #[pi5_executor::task]
@@ -116,10 +117,10 @@ async fn blink(mut led: Output) {
 }
 
 #[pi5_executor::task]
-async fn heartbeat(mut uart: Uart<Async>) {
+async fn heartbeat() {
     let start = Instant::now();
     loop {
-        let _ = writeln!(uart, "{{NAME}} alive for {} ms", start.elapsed().as_millis());
+        info!("alive for {} ms", start.elapsed().as_millis());
         Timer::after_secs(1).await;
     }
 }

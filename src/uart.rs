@@ -564,6 +564,32 @@ impl<Dm: DriverMode> Uart<Dm> {
         Ok(n)
     }
 
+    /// Handle for the logging macros (`info!` & co., see [`crate::log`]):
+    /// RP1 UART0 on GPIO14 (TX, physical pin 8) / GPIO15 (RX, physical pin
+    /// 10). If the program already set UART0 up, it is used as it is (same
+    /// baud rate); otherwise it is set up here at 115200 8N1.
+    ///
+    /// # Safety
+    /// Bypasses ownership: the caller must serialise access (crate::log
+    /// holds a lock) and nobody may use GPIO14/15 for anything but UART0.
+    pub(crate) unsafe fn console() -> Uart<Blocking> {
+        if !UART0_READY.load(Ordering::Acquire) {
+            let uart = Uart::new(UART0::new(), Config::default().with_baudrate(115_200))
+                .expect("115200 baud works with the 50 MHz UART clock");
+            // SAFETY: the caller promised GPIO14/15 are UART0's.
+            let (tx, rx) = unsafe { (AnyPin::steal(14), AnyPin::steal(15)) };
+            let _ = uart.with_tx(tx).with_rx(rx);
+        }
+        Uart::<Blocking> {
+            base: UART0::BASE,
+            name: UART0::NAME,
+            clock_hz: 0,
+            lf_to_crlf: true,
+            connect: UART0::connect,
+            _mode: PhantomData,
+        }
+    }
+
     /// Emergency handle for the panic/exception handlers: RP1 UART0 if the
     /// program set it up (it is then wired to something), otherwise the
     /// debug UART, initialised with defaults if nobody did so yet.

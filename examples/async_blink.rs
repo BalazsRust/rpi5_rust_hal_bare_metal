@@ -11,6 +11,7 @@ use pi5_executor::Spawner;
 use pi5_hal::gpio::{Level, Output, OutputConfig};
 use pi5_hal::uart::{Config, Uart};
 use pi5_hal::Async;
+use pi5_hal::info;
 use pi5_time::{Duration, Instant, Timer};
 
 #[pi5_executor::main]
@@ -29,6 +30,7 @@ async fn blink(mut led: Output) {
     loop {
         led.toggle();
         Timer::after(Duration::from_millis(150)).await;
+        info!("test");
     }
 }
 

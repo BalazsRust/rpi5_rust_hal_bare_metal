@@ -65,6 +65,9 @@ required-features = ["rt", "panic-handler"]
 name = "button"
 required-features = ["rt", "panic-handler"]
 [[example]]
+name = "log_demo"
+required-features = ["rt", "panic-handler"]
+[[example]]
 name = "uart_hello"
 required-features = ["rt", "panic-handler"]
 [[example]]
