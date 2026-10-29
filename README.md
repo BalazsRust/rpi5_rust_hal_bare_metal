@@ -523,7 +523,13 @@ Still assumptions (from the Linux sources named in `crates/pi5-pac`):
 
 If a program crashes, the exception handler prints the vector, `ESR`
 (decoded), `ELR` (look the address up with
+
+
+
+
 `llvm-objdump -d target/.../<name> | grep -B5 <addr>`) and `FAR` on UART0,
 so it shows up in the `cargo run` terminal. A "synchronous external abort"
 at an address in `0x1F_...` means RP1 did not answer: check
 `pciex4_reset=0`.
+### showcase
+https://github.com/user-attachments/assets/3be7b5d3-3c1f-48b4-b04d-bad2b6b18d2e
